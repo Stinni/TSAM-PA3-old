@@ -87,14 +87,17 @@ int main(int argc, char **argv)
        welcome port. A backlog of six connections is allowed. */
     listen(sockfd, 6);
 
+    gchar *crt_path = g_strconcat("fd.crt", NULL);
+    gchar *pkey_path = g_strconcat("root-ca/private/rsa-public.key", NULL);
+
      /* Initialize OpenSSL */
-    //Used in chat.c
-    /*static int server_fd;
-    static SSL *server_ssl;*/
     SSL_library_init(); /* load encryption & hash algorithms for SSL */
     SSL_load_error_strings(); /* load the error strings for good error reporting */
 
-
+    SSL_CTX *ssl_ctx = SSL_CTX_new(TLSv1_server_method());
+    /* Loading the certificate into the SSL_CTX structure */
+    SSL_CTX_use_certificate_file(ssl_ctx, crt_path, SSL_FILETYPE_ASN1);
+    SSL_CTX_use_PrivateKey_file(ssl_ctx, pkey_path, SSL_FILETYPE_ASN1);
 
      /* Receive and handle messages. */
     for(;;) {
