@@ -1,3 +1,4 @@
 *.o
+!getpasswd.o
 chat
 chatd

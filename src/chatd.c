@@ -95,15 +95,23 @@ int main(int argc, char **argv)
     SSL_load_error_strings(); /* load the error strings for good error reporting */
 
     SSL_CTX *ssl_ctx = SSL_CTX_new(TLSv1_server_method());
-    /* Loading the certificate into the SSL_CTX structure */
-    SSL_CTX_use_certificate_file(ssl_ctx, crt_path, SSL_FILETYPE_ASN1);
-    SSL_CTX_use_PrivateKey_file(ssl_ctx, pkey_path, SSL_FILETYPE_ASN1);
+    /* Load server certificate into the SSL context */
+    if (SSL_CTX_use_certificate_file(ssl_ctx, crt_path, SSL_FILETYPE_ASN1) <= 0) { 
+        perror("SSL_CTX_use_certificate_file()");
+        exit(EXIT_FAILURE);
+    }
+    /* Load the server private-key into the SSL context */
+    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, pkey_path, SSL_FILETYPE_ASN1) <= 0) {
+        perror("SSL_CTX_use_PrivateKey_file()");
+        exit(EXIT_FAILURE);
+    }
 
      /* Receive and handle messages. */
     for(;;) {
         //Accepting a TCP connection, connfd is a handle dedicated to this connection.
         socklen_t len = (socklen_t) sizeof(client);
         int connfd = accept(sockfd, (struct sockaddr *) &client, &len);
+        SSL_set_fd(cSSL, newsockfd );
 
         /* Receive from connfd, not sockfd. */
         ssize_t n = recv(connfd, message, sizeof(message) - 1, 0);
