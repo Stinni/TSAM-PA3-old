@@ -29,6 +29,8 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
+/* Constants */
+#define MAX_MESSAGE_LENTH 1024
 
 /* This variable holds a file descriptor of a pipe on which we send a
  * number if a signal is received. */
@@ -238,7 +240,15 @@ void readline_callback(char *line)
 
 int main(int argc, char **argv)
 {
+    if (argc != 2) {
+         fprintf(stderr, "Usage: %s <host:port>\n", argv[0]);
+         exit(EXIT_FAILURE);
+    }
+
     initialize_exitfd();
+
+    char *message[MAX_MESSAGE_LENTH];
+    memset(&message, 0, sizeof(message));
 
     /* Initialize OpenSSL */
     SSL_library_init();
@@ -260,9 +270,17 @@ int main(int argc, char **argv)
 	 * create here can be used in select calls, so do not forget
 	 * them.
 	 */
+    int sockfd;
+    struct sockaddr_in server;
+
+    memset(&server, 0, sizeof(server));
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = inet_addr("127.0.0.1");
+    server.sin_port = 10140;
+    connect(sockfd, (struct sockaddr *) &server, (socklen_t) sizeof(server));     
 
 	/* Use the socket for the SSL connection. */
-    SSL_set_fd(server_ssl, server_fd);
+    SSL_set_fd(server_ssl, sockfd);
 
 	/* Now we can create BIOs and use them instead of the socket.
 	 * The BIO is responsible for maintaining the state of the
@@ -272,6 +290,9 @@ int main(int argc, char **argv)
 	 */
 
     /* Set up secure connection to the chatd server. */
+    int c_err = SSL_connect(server_ssl);
+    //RETURN_SSL(c_err);
+    printf("SSL connection using %s\n", SSL_get_cipher(server_ssl));
 
     /* Read characters from the keyboard while waiting for input.
      */
@@ -334,7 +355,10 @@ int main(int argc, char **argv)
             rl_callback_read_char();
         }
 
-    /* Handle messages from the server here! */
+        int n = SSL_read(server_ssl, message, sizeof(message));
+        /* Handle messages from the server here! */
+        for(int i = 0; i < n; i++) g_printf("%hhx ", message[i]);
+        g_printf("\n");
     }
 /* replace by code to shutdown the connection and exit
    the program. */

@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -62,6 +63,7 @@ int main(int argc, char **argv)
 {
     int sockfd;
     struct sockaddr_in server, client;
+    SSL *ssl;
 
     if (argc != 2) {
          fprintf(stderr, "Usage: %s <port>\n", argv[0]);
@@ -72,8 +74,50 @@ int main(int argc, char **argv)
 
     gchar message[MAX_MESSAGE_LENGTH];
 
+    //gchar *pkey_path = g_strconcat("/root-ca/private/rsa-public.key", NULL);
+
+     /* Initialize OpenSSL */
+    SSL_library_init(); /* load encryption & hash algorithms for SSL */
+    SSL_load_error_strings(); /* load the error strings for good error reporting */
+
+    SSL_CTX *ssl_ctx = SSL_CTX_new(TLSv1_server_method());
+    if(!ssl_ctx) {
+        perror("SSL_CTX_new(TLSv1_server_method())");
+        exit(EXIT_FAILURE);
+    }
+
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+       fprintf(stdout, "Current working dir: %s\n", cwd);
+    }
+
+    fprintf(stdout, "0");
+    fflush(stdout);
+
+    /* Load server certificate into the SSL context */
+    if (SSL_CTX_use_certificate_file(ssl_ctx, "./src/server.pem", SSL_FILETYPE_PEM) <= 0) { 
+        perror("SSL_CTX_use_certificate_file()");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Load the server private-key into the SSL context */
+    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, "./src/server.pem", SSL_FILETYPE_PEM) <= 0) {
+        perror("SSL_CTX_use_PrivateKey_file()");
+        exit(EXIT_FAILURE);
+    }
+
+    if (!SSL_CTX_check_private_key(ssl_ctx)) {
+        perror("Private key does not match the certificate public key\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fprintf(stdout, "1");
+    fflush(stdout);
     /* Create and bind a TCP socket */
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    sockfd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    fprintf(stdout, "2");
+    fflush(stdout);
 
     /* Network functions need arguments in network byte order instead of
        host byte order. The macros htonl, htons convert the values. */
@@ -83,35 +127,42 @@ int main(int argc, char **argv)
     server.sin_port = server_port;
     bind(sockfd, (struct sockaddr *) &server, (socklen_t) sizeof(server));
 
+    fprintf(stdout, "3");
+    fflush(stdout);
+
     /* Before the server can accept messages, it has to listen to the
        welcome port. A backlog of six connections is allowed. */
     listen(sockfd, 6);
 
-    gchar *crt_path = g_strconcat("fd.crt", NULL);
-    gchar *pkey_path = g_strconcat("root-ca/private/rsa-public.key", NULL);
-
-     /* Initialize OpenSSL */
-    SSL_library_init(); /* load encryption & hash algorithms for SSL */
-    SSL_load_error_strings(); /* load the error strings for good error reporting */
-
-    SSL_CTX *ssl_ctx = SSL_CTX_new(TLSv1_server_method());
-    /* Load server certificate into the SSL context */
-    if (SSL_CTX_use_certificate_file(ssl_ctx, crt_path, SSL_FILETYPE_ASN1) <= 0) { 
-        perror("SSL_CTX_use_certificate_file()");
-        exit(EXIT_FAILURE);
-    }
-    /* Load the server private-key into the SSL context */
-    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, pkey_path, SSL_FILETYPE_ASN1) <= 0) {
-        perror("SSL_CTX_use_PrivateKey_file()");
-        exit(EXIT_FAILURE);
-    }
+    fprintf(stdout, "4");
+    fflush(stdout);
 
      /* Receive and handle messages. */
     for(;;) {
         //Accepting a TCP connection, connfd is a handle dedicated to this connection.
         socklen_t len = (socklen_t) sizeof(client);
+
+        fprintf(stdout, "5");
+        fflush(stdout);
+
         int connfd = accept(sockfd, (struct sockaddr *) &client, &len);
-        SSL_set_fd(cSSL, newsockfd );
+
+        fprintf(stdout, "6");
+        fflush(stdout);
+
+        ssl = SSL_new(ssl_ctx);
+
+        fprintf(stdout, "7");
+        fflush(stdout);
+
+        SSL_set_fd(ssl, connfd);
+
+        g_printf("Inside the for loop, before the SSL_accept() function...\n");
+
+        int error = SSL_accept(ssl);
+        printf("SSL_accept returns: %d\n", error);
+
+        SSL_write(ssl, "This message is from the SSL server", strlen("This message is from the SSL server"));
 
         /* Receive from connfd, not sockfd. */
         ssize_t n = recv(connfd, message, sizeof(message) - 1, 0);
