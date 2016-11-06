@@ -1,10 +1,3 @@
-/* A UDP echo server with timeouts.
- *
- * Note that you will not need to use select and the timeout for a
- * tftp server. However, select is also useful if you want to receive
- * from multiple sockets at the same time. Read the documentation for
- * select on how to do this (Hint: Iterate with FD_ISSET()).
- */
 
 #include <assert.h>
 #include <sys/select.h>
@@ -12,6 +5,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
@@ -28,6 +22,9 @@
 /* For nicer interaction, we use the GNU readline library. */
 #include <readline/readline.h>
 #include <readline/history.h>
+
+/* For getpasswd function */
+//#include "getpasswd.c"
 
 /* Constants */
 #define MAX_MESSAGE_LENTH 1024
@@ -121,8 +118,6 @@ static char *chatroom;
  * input. It is good style to indicate the name of the user and the
  * chat room he is in as part of the prompt. */
 static char *prompt;
-
-
 
 /* When a line is entered using the readline library, this function
    gets called to handle the entered line. Implement the code to
@@ -238,22 +233,67 @@ void readline_callback(char *line)
     fsync(STDOUT_FILENO);
 }
 
+SSL_CTX* InitCTX()
+{
+    SSL_CTX *ctx;
+ 
+    OpenSSL_add_all_algorithms();  /* Load cryptos, et.al. */
+    SSL_load_error_strings();   /* Bring in and register error messages */
+    ctx = SSL_CTX_new(TLSv1_client_method());   /* Create new context */
+    if (ctx == NULL)
+    {
+        perror("SSL_CTX_new(TLSv1_client_method())");
+        exit(EXIT_FAILURE);
+    }
+    return ctx;
+}
+
+int OpenConnection(const char *hostname, int port)
+{
+    int sd;
+    struct sockaddr_in addr;
+
+    sd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    bzero(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+
+    if(!inet_aton(hostname, &addr.sin_addr)) {
+        perror(hostname);
+        exit(EXIT_FAILURE);
+    }
+
+    if (connect(sd, (struct sockaddr*)&addr, sizeof(addr)) != 0)
+    {
+        close(sd);
+        perror(hostname);
+        exit(EXIT_FAILURE);
+    }
+    return sd;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-         fprintf(stderr, "Usage: %s <host:port>\n", argv[0]);
+    if (argc != 3) {
+         fprintf(stderr, "Usage: %s <hostname> <port>\n", argv[0]);
          exit(EXIT_FAILURE);
     }
 
-    initialize_exitfd();
+    SSL_CTX *ctx;
+    char message[MAX_MESSAGE_LENTH];
+    bzero(&message, sizeof(message));
+    int bytes;
+    char *hostname, *port;
 
-    char *message[MAX_MESSAGE_LENTH];
-    memset(&message, 0, sizeof(message));
+    initialize_exitfd();
 
     /* Initialize OpenSSL */
     SSL_library_init();
-    SSL_load_error_strings();
-    SSL_CTX *ssl_ctx = SSL_CTX_new(TLSv1_client_method());
+    hostname = argv[1];
+    port = argv[2];
+
+    ctx = InitCTX();
+    server_fd = OpenConnection(hostname, atoi(port));
 
 	/* TODO:
 	 * We may want to use a certificate file if we self sign the
@@ -263,24 +303,10 @@ int main(int argc, char **argv)
 	 * a server side key data base can be used to authenticate the
 	 * client.
 	 */
-
-    server_ssl = SSL_new(ssl_ctx);
-
-	/* Create and set up a listening socket. The sockets you
-	 * create here can be used in select calls, so do not forget
-	 * them.
-	 */
-    int sockfd;
-    struct sockaddr_in server;
-
-    memset(&server, 0, sizeof(server));
-    server.sin_family = AF_INET;
-    server.sin_addr.s_addr = inet_addr("127.0.0.1");
-    server.sin_port = 10140;
-    connect(sockfd, (struct sockaddr *) &server, (socklen_t) sizeof(server));     
+    server_ssl = SSL_new(ctx);
 
 	/* Use the socket for the SSL connection. */
-    SSL_set_fd(server_ssl, sockfd);
+    SSL_set_fd(server_ssl, server_fd);
 
 	/* Now we can create BIOs and use them instead of the socket.
 	 * The BIO is responsible for maintaining the state of the
@@ -290,9 +316,15 @@ int main(int argc, char **argv)
 	 */
 
     /* Set up secure connection to the chatd server. */
-    int c_err = SSL_connect(server_ssl);
-    //RETURN_SSL(c_err);
+    if (SSL_connect(server_ssl) < 0) {
+        perror("SSL_connect()");
+        SSL_free(server_ssl);
+        close(server_fd);         /* close socket */
+        SSL_CTX_free(ctx);        /* release context */
+        exit(EXIT_FAILURE);
+    }
     printf("SSL connection using %s\n", SSL_get_cipher(server_ssl));
+    fflush(stdout);
 
     /* Read characters from the keyboard while waiting for input.
      */
@@ -336,7 +368,7 @@ int main(int argc, char **argv)
             int signum;
             for (;;) {
                 if (read(exitfd[0], &signum, sizeof(signum)) == -1) {
-                    if (errno = EAGAIN) {
+                    if ((errno = EAGAIN)) {
                         break;
                     } else {
                         perror("read()");
@@ -355,11 +387,16 @@ int main(int argc, char **argv)
             rl_callback_read_char();
         }
 
-        int n = SSL_read(server_ssl, message, sizeof(message));
+        //bytes = SSL_read(server_ssl, message, sizeof(message));
         /* Handle messages from the server here! */
-        for(int i = 0; i < n; i++) g_printf("%hhx ", message[i]);
-        g_printf("\n");
+        //for(int i = 0; i < bytes; i++) printf("%hhx ", message[i]);
+        //printf("\n");
+        char reply[36] = "This message is from the SSL client\0";
+        SSL_write(server_ssl, reply, sizeof(reply)); /* send reply */
     }
-/* replace by code to shutdown the connection and exit
-   the program. */
+
+    SSL_free(server_ssl);
+    close(server_fd);         /* close socket */
+    SSL_CTX_free(ctx);        /* release context */
+    return 0;
 }
