@@ -160,6 +160,10 @@ int main(int argc, char **argv)
         }
         else
         {
+            gchar *clientIP = g_strdup_printf("%s", inet_ntoa(client.sin_addr));
+            gchar *clientPort = g_strdup_printf("%i", (int)ntohs(client.sin_port));
+            logConnected(clientIP, clientPort);
+
             int bytes = SSL_read(ssl, message, sizeof(message) - 1); /* get request */
             if (bytes > 0)
             {

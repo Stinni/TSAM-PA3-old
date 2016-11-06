@@ -3,6 +3,6 @@
 #include <glib.h>
 #include <glib/gprintf.h>
 
-gchar *getCurrentDateTimeAsString();
 gchar *getCurrentDateTimeAsISOString();
-void logRecvMessage(gchar *clientIP, gchar *clientPort, gchar *reqMethod, gchar *host, gchar *reqURL, gchar *code);
+void logConnected(gchar *clientIP, gchar *clientPort);
+void logDisconnected(gchar *clientIP, gchar *clientPort);
