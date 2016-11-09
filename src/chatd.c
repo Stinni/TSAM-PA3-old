@@ -153,7 +153,6 @@ int main(int argc, char **argv)
     //GTree *map = g_tree_new(fd_cmp);
 
     char message[MAX_MESSAGE_LENGTH];
-    bzero(&message, sizeof(message));
 
      /* Receive and handle messages. */
     for(;;) {
@@ -229,29 +228,97 @@ int main(int argc, char **argv)
         {
             sd = client_socket[i];
 
-            if(FD_ISSET(sd, &readfds))
+            if(sd != 0 && FD_ISSET(sd, &readfds))
             {
                 SSL_set_fd(ssl, sd);
-                //Check if it was for closing , and also read the incoming message
-                if((bytes = SSL_read(ssl, message, sizeof(message) - 1)) == 0)
+                bzero(&message, sizeof(message));
+                //Check if it was for closing, and also read the incoming message
+                if((bytes = SSL_read(ssl, message, sizeof(message) - 1)) > 0)
                 {
-                    //Somebody disconnected , get his details and log
-                    getpeername(sd, (struct sockaddr*)&client , &len);
-                    gchar *clientIP = g_strdup_printf("%s", inet_ntoa(client.sin_addr));
-                    gchar *clientPort = g_strdup_printf("%i", (int)ntohs(client.sin_port));
-                    logDisconnected(clientIP, clientPort);
-                    g_free(clientPort);
-                    g_free(clientIP);
-
-                    //Close the socket and mark as 0 in list for reuse
-                    close(sd);
-                    client_socket[i] = 0;
-                }
-                else // Work with incoming messages here!
-                {
+                    // Work with incoming messages here!
                     message[bytes] = 0;
                     printf("Client msg: \"%s\"\n", message);
-                    fflush(stdout);
+                }
+                else
+                {
+                    int err = SSL_get_error(ssl, bytes);
+                    switch(err)
+                    {
+                        case SSL_ERROR_NONE:
+                        {
+                            // no real error, just try again...
+                            perror("SSL_ERROR_NONE");
+                            continue;
+                        }
+                        case SSL_ERROR_ZERO_RETURN: 
+                        {
+                            //Somebody disconnected , get his details and log
+                            getpeername(sd, (struct sockaddr*)&client , &len);
+                            gchar *clientIP = g_strdup_printf("%s", inet_ntoa(client.sin_addr));
+                            gchar *clientPort = g_strdup_printf("%i", (int)ntohs(client.sin_port));
+                            logDisconnected(clientIP, clientPort);
+                            g_free(clientPort);
+                            g_free(clientIP);
+
+                            //Close the socket and mark as 0 in list for reuse
+                            close(sd);
+                            client_socket[i] = 0;
+                            break;
+                        }
+                        case SSL_ERROR_WANT_READ: 
+                        {
+                            // no data available right now, wait a few seconds in case new data arrives...
+                            perror("SSL_ERROR_WANT_READ");
+
+                            /*int sock = SSL_get_rfd(ssl);
+                            FD_ZERO(&fds);
+                            FD_SET(sock, &fds);
+
+                            timeout.tv_sec = 5;
+                            timeout.tv_nsec = 0;
+
+                            err = select(sock+1, &fds, NULL, NULL, &timeout);
+                            if (err > 0)
+                                continue; // more data to read...
+
+                            if (err == 0) {
+                                // timeout...
+                            } else {
+                                // error...
+                            }*/
+
+                            break;
+                        }
+                        case SSL_ERROR_WANT_WRITE: 
+                        {
+                            // socket not writable right now, wait a few seconds and try again...
+                            perror("SSL_ERROR_WANT_WRITE");
+
+                            /*int sock = SSL_get_wfd(c->sslHandle);
+                            FD_ZERO(&fds);
+                            FD_SET(sock, &fds);
+
+                            timeout.tv_sec = 5;
+                            timeou.tv_nsec = 0;
+
+                            err = select(sock+1, NULL, &fds, NULL, &timeout);
+                            if (err > 0)
+                                continue; // can write more data now...
+
+                            if (err == 0) {
+                                // timeout...
+                            } else {
+                                // error...
+                            }*/
+
+                            break;
+                        }
+                        default:
+                        {
+                            printf("error %i:%i\n", bytes, err); 
+                            break;
+                        }
+                    }
                 }
             }
         }

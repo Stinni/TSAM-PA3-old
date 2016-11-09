@@ -119,6 +119,23 @@ static char *chatroom;
  * chat room he is in as part of the prompt. */
 static char *prompt;
 
+void ReplyFromServer()
+{
+    char message[1024];
+  //  bzero(&message, sizeof(message));
+    int bytes = SSL_read(server_ssl, message, sizeof(message) - 1); /* get request */
+            if (bytes > 0)
+            {
+                message[bytes] = 0;
+                printf("Server msg: \"%s\"\n", message);
+                fflush(stdout);
+            }
+            else
+            {
+                perror("SSL_read()"); //server not responding to query
+            }
+}
+
 /* When a line is entered using the readline library, this function
    gets called to handle the entered line. Implement the code to
    handle the user requests in this function. The client handles the
@@ -135,7 +152,11 @@ void readline_callback(char *line)
         add_history(line);
     }
     if ((strncmp("/bye", line, 4) == 0) ||
-        (strncmp("/quit", line, 5) == 0)) {
+        (strncmp("/quit", line, 5) == 0) ||
+        (strncmp("/exit", line, 5) == 0)) {
+        char reply[27] = "CLOSE_CONNECTION_FROM_USER\0"; //Close connection request
+        SSL_write(server_ssl, reply, sizeof(reply)); /* send quit request */
+
         rl_callback_handler_remove();
         signal_handler(SIGTERM);
         return;
@@ -150,6 +171,8 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
+        SSL_write(server_ssl, line, 200); /* send list request */
+        ReplyFromServer();
         /* Start game */
         return;
     }
@@ -173,6 +196,9 @@ void readline_callback(char *line)
     }
     if (strncmp("/list", line, 5) == 0) {
         /* Query all available chat rooms */
+        char reply[14] = "REQUEST_LIST\0"; //LIST request
+        SSL_write(server_ssl, reply, sizeof(reply)); /* send list request */
+        ReplyFromServer();
         return;
     }
     if (strncmp("/roll", line, 5) == 0) {
@@ -200,7 +226,7 @@ void readline_callback(char *line)
         }
         char *receiver = strndup(&(line[i]), j - i - 1);
         char *message = strndup(&(line[j]), j - i - 1);
-                /* Send private message to receiver. */
+        /* Send private message to receiver. */
         return;
     }
     if (strncmp("/user", line, 5) == 0) {
@@ -225,12 +251,20 @@ void readline_callback(char *line)
     }
     if (strncmp("/who", line, 4) == 0) {
         /* Query all available users */
+        char reply[13] = "REQUEST_WHO\0"; //WHO request
+        SSL_write(server_ssl, reply, sizeof(reply)); /* send who request */
+        ReplyFromServer();
         return;
     }
+    else {
+        /* if the line is a message  */
+        SSL_write(server_ssl, line, sizeof(line)); 
+    }
+
     /* Sent the buffer to the server. */
-    snprintf(buffer, 255, "Message: %s\n", line);
-    write(STDOUT_FILENO, buffer, strlen(buffer));
-    fsync(STDOUT_FILENO);
+    //snprintf(buffer, 255, "Message: %s\n", line);
+    //write(STDOUT_FILENO, buffer, strlen(buffer));
+    //fsync(STDOUT_FILENO);
 }
 
 SSL_CTX* InitCTX()
@@ -305,7 +339,7 @@ int main(int argc, char **argv)
 	 */
     server_ssl = SSL_new(ctx);
 
-	/* Use the socket for the SSL connection. */
+    /* Use the socket for the SSL connection. */
     SSL_set_fd(server_ssl, server_fd);
 
 	/* Now we can create BIOs and use them instead of the socket.
@@ -387,12 +421,21 @@ int main(int argc, char **argv)
             rl_callback_read_char();
         }
 
-        //bytes = SSL_read(server_ssl, message, sizeof(message));
         /* Handle messages from the server here! */
-        //for(int i = 0; i < bytes; i++) printf("%hhx ", message[i]);
-        //printf("\n");
-        char reply[36] = "This message is from the SSL client\0";
-        SSL_write(server_ssl, reply, sizeof(reply)); /* send reply */
+        //bytes = SSL_read(server_ssl, message, sizeof(message) - 1); /* get request */
+        /*if (bytes > 0)
+        {
+            for(int i = 0; i < bytes; i++) printf("%hhx ", message[i]);
+            printf("\n");
+
+            message[bytes] = 0;
+            printf("Client msg: \"%s\"\n", message);
+            fflush(stdout);
+        }
+        else
+        {
+            perror("SSL_read()");
+        }*/
     }
 
     SSL_free(server_ssl);
