@@ -1,1 +1,3 @@
-Update this.
+
+most of SSL setup structure and functions were taken from here:
+http://simplestcodings.blogspot.is/2010/08/secure-server-client-using-openssl-in-c.html
