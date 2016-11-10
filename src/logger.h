@@ -6,3 +6,4 @@
 gchar *getCurrentDateTimeAsISOString();
 void logConnected(gchar *clientIP, gchar *clientPort);
 void logDisconnected(gchar *clientIP, gchar *clientPort);
+void logError(gchar *error);

@@ -25,6 +25,17 @@
 #define MAX_NUMBER_OF_CONNECTIONS  256
 #define MAX_MESSAGE_LENGTH        1025
 
+/* PROTOCOL 
+ * This is the prefix of the message the client sends the server
+ */
+#define REQ_GAME "REQUEST_GAME"
+#define REQ_SAY  "REQUEST_SAYY"
+#define REQ_ROLL "REQUEST_ROLL"
+#define REQ_JOIN "REQUEST_JOIN"
+#define REQ_USER "REQUEST_USER"
+#define REQ_LIST "REQUEST_LIST"
+#define REQ_WHO  "REQUEST_WHOO"
+
 /* A struct to keep info about each client */
 typedef struct {
     char username[64];
@@ -45,6 +56,15 @@ static GTree* chatroomsTree;
 static int    max_sd;
 GString*      allUsers;
 GString*      allRooms;
+
+/* sigint_handler - The chat server can be gracefully terminated :) */
+void sigint_handler(int G_GNUC_UNUSED sig)
+{
+    // Do cleanup and terminate the program!
+    // TODO: Implement
+    write(STDOUT_FILENO, "\nBye...\n", 8);
+    exit(EXIT_SUCCESS);
+}
 
 /* This can be used to build instances of GTree that index on
    the address of a connection. */
@@ -126,9 +146,29 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
         {
             // Work with incoming messages here!
             message[bytes] = 0;
+            if(g_str_has_prefix(message, REQ_USER)) {
+                printf("Client sent a \"REQ_USER\" request.\n");
+            }
+            if(g_str_has_prefix(message, REQ_GAME)) {
+                printf("Client sent a \"REQ_GAME\" request.\n");
+            }
+            if(g_str_has_prefix(message, REQ_JOIN)) {
+                printf("Client sent a \"REQ_JOIN\" request.\n");
+            }
+            if(g_str_has_prefix(message, REQ_ROLL)) {
+                printf("Client sent a \"REQ_ROLL\" request.\n");
+            }
+            if(g_str_has_prefix(message, REQ_LIST)) {
+                printf("Client sent a \"REQ_LIST\" request.\n");
+            }
+            if(g_str_has_prefix(message, REQ_SAY)) {
+                printf("Client sent a \"REQ_SAY\" request.\n");
+            }
+            if(g_str_has_prefix(message, REQ_WHO)) {
+                printf("Client sent a \"REQ_WHO\" request.\n");
+            }
+
             printf("Client msg: \"%s\"\n", message);
-            char msg[36] = "This message is from the SSL server\n";
-            SSL_write(tmp->ssl, msg, sizeof(msg)); /* send msg */
         }
         else if(bytes == 0)
         {
@@ -144,86 +184,33 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
             SSL_free(tmp->ssl);            /* release SSL state */
             g_tree_remove(usersTree, key);
         }
-        else
+        else /* Some error occurred */
         {
             int err = SSL_get_error(tmp->ssl, bytes);
             switch(err)
             {
                 case SSL_ERROR_NONE:
-                {
-                    // no real error, just try again...
-                    printf("SSL_ERROR_NONE");
+                    logError("SSL_ERROR_NONE");
                     break;
-                }
                 case SSL_ERROR_SSL:
-                {
-                    // no real error, just try again...
-                    printf("SSL_ERROR_SSL");
+                    logError("SSL_ERROR_SSL");
                     break;
-                }
                 case SSL_ERROR_WANT_READ: 
-                {
-                    // no data available right now, wait a few seconds in case new data arrives...
-                    printf("SSL_ERROR_WANT_READ");
-                    /*FD_ZERO(&fds);
-                    FD_SET(sd, &fds);
-
-                    struct timeval *timeout;
-                    memset(&timeout, 0, sizeof(struct timeval));
-                    timeout.tv_sec = 5;
-                    timeout.tv_nsec = 0;
-
-                    err = select(sock+1, &fds, NULL, NULL, &timeout);
-                    if (err > 0)
-                        continue; // more data to read...
-
-                    if (err == 0) {
-                        // timeout...
-                    } else {
-                        // error...
-                    }*/
-
+                    logError("SSL_ERROR_WANT_READ");
                     break;
-                }
                 case SSL_ERROR_WANT_WRITE: 
-                {
-                    // socket not writable right now, wait a few seconds and try again...
-                    perror("SSL_ERROR_WANT_WRITE");
-
-                    /*FD_ZERO(&fds);
-                    FD_SET(sd, &fds);
-
-                    timeout.tv_sec = 5;
-                    timeou.tv_nsec = 0;
-
-                    err = select(sd+1, NULL, &fds, NULL, &timeout);
-                    if (err > 0)
-                        continue; // can write more data now...
-
-                    if (err == 0) {
-                        // timeout...
-                    } else {
-                        // error...
-                    }*/
-
+                    logError("SSL_ERROR_WANT_WRITE");
                     break;
-                }
                 case SSL_ERROR_SYSCALL:
-                {
-                    printf("SSL_ERROR_SYSCALL");
+                    logError("SSL_ERROR_SYSCALL");
                     break;
-                }
                 case SSL_ERROR_ZERO_RETURN: 
-                {
                     /* This shouldn't happen since we already check if bytes == 0 */
-                    printf("SSL_ERROR_ZERO_RETURN");
+                    logError("SSL_ERROR_ZERO_RETURN");
                     break;
-                }
                 default:
-                {
-                    printf("error %i:%i\n", bytes, err); 
+                    logError("SSL_ERROR"); 
                     break;
-                }
             }
         }
     }
@@ -295,6 +282,16 @@ int main(int argc, char **argv)
     if(argc != 2) {
          fprintf(stderr, "Usage: %s <port>\n", argv[0]);
          exit(EXIT_FAILURE);
+    }
+
+    /* Set the signal handler. */
+    struct sigaction sa;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;           /* Restart interrupted reads()s */
+    sa.sa_handler = sigint_handler;
+    if(sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("sigaction()");
+        exit(EXIT_FAILURE);
     }
 
     /* Initialize OpenSSL */
@@ -399,7 +396,6 @@ int main(int argc, char **argv)
         // We iterate through all clients and check if there is data to be
         // recieved. checkClients() function is used for that.
         g_tree_foreach(usersTree, checkClients, &readfds);
-        printf("There're %d clients connected now!\n", g_tree_nnodes(usersTree));
     }
 
     g_tree_destroy(chatroomsTree);
