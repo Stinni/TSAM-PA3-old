@@ -37,8 +37,8 @@ typedef struct {
 } ClientInfo;
 
 /* Global variables */
-#define CERT_FILE_PATH "./src/mycert.pem"
-#define WELCOME_MSG    "Welcome to the chat server. Please start by logging in.\n"
+#define CERT_FILE_PATH "./src/server.pem"
+#define WELCOME_MSG    "Welcome to the chat server. Please start by logging in."
 ClientInfo*   clientInfo;
 static GTree* usersTree;
 static GTree* chatroomsTree;
@@ -133,45 +133,32 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
         else if(bytes == 0)
         {
             // Somebody disconnected , get his details and log
-            // TODO: Make the client send a message when disconnecting and log it then
-            struct sockaddr_in client;
-            socklen_t len = (socklen_t) sizeof(client); 
-            memset(&client, 0, sizeof(client));
-            if(getpeername(tmp->sock, (struct sockaddr*)&client, &len) != 0) {
-                perror("getpeername()");
-            } else {
-                gchar *clientIP = g_strdup_printf("%s", inet_ntoa(client.sin_addr));
-                gchar *clientPort = g_strdup_printf("%i", (int)ntohs(client.sin_port));
-                logDisconnected(clientIP, clientPort);
-                g_free(clientPort);
-                g_free(clientIP);
-                // Close the socket, free the ssl and remove from the tree
-                close(tmp->sock);
-                SSL_free(tmp->ssl);            /* release SSL state */
-                g_tree_remove(usersTree, key);
-            }
+            // TODO: Maybe make the client send a message when disconnecting and log it then
+            gchar *clientIP = g_strdup_printf("%s", tmp->ip);
+            gchar *clientPort = g_strdup_printf("%s", tmp->port);
+            logDisconnected(clientIP, clientPort);
+            g_free(clientPort);
+            g_free(clientIP);
+            // Close the socket, free the ssl and remove from the tree
+            close(tmp->sock);
+            SSL_free(tmp->ssl);            /* release SSL state */
+            g_tree_remove(usersTree, key);
         }
         else
         {
             int err = SSL_get_error(tmp->ssl, bytes);
             switch(err)
             {
-                case SSL_ERROR_SSL:
-                {
-                    // no real error, just try again...
-                    printf("SSL_ERROR_SSL");
-                    break;
-                }
                 case SSL_ERROR_NONE:
                 {
                     // no real error, just try again...
                     printf("SSL_ERROR_NONE");
                     break;
                 }
-                case SSL_ERROR_ZERO_RETURN: 
+                case SSL_ERROR_SSL:
                 {
-                    /* This shouldn't happen since we already check if bytes == 0 */
-                    printf("SSL_ERROR_ZERO_RETURN");
+                    // no real error, just try again...
+                    printf("SSL_ERROR_SSL");
                     break;
                 }
                 case SSL_ERROR_WANT_READ: 
@@ -219,6 +206,17 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
                         // error...
                     }*/
 
+                    break;
+                }
+                case SSL_ERROR_SYSCALL:
+                {
+                    printf("SSL_ERROR_SYSCALL");
+                    break;
+                }
+                case SSL_ERROR_ZERO_RETURN: 
+                {
+                    /* This shouldn't happen since we already check if bytes == 0 */
+                    printf("SSL_ERROR_ZERO_RETURN");
                     break;
                 }
                 default:
@@ -401,6 +399,7 @@ int main(int argc, char **argv)
         // We iterate through all clients and check if there is data to be
         // recieved. checkClients() function is used for that.
         g_tree_foreach(usersTree, checkClients, &readfds);
+        printf("There're %d clients connected now!\n", g_tree_nnodes(usersTree));
     }
 
     g_tree_destroy(chatroomsTree);

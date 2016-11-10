@@ -27,7 +27,7 @@
 //#include "getpasswd.c"
 
 /* Constants */
-#define MAX_MESSAGE_LENTH 1024
+#define MAX_MESSAGE_LENTH 1025
 
 /* This variable holds a file descriptor of a pipe on which we send a
  * number if a signal is received. */
@@ -121,19 +121,19 @@ static char *prompt;
 
 void ReplyFromServer()
 {
-    char message[1024];
-  //  bzero(&message, sizeof(message));
+    char message[MAX_MESSAGE_LENTH];
+    memset(&message, 0, sizeof(message));
     int bytes = SSL_read(server_ssl, message, sizeof(message) - 1); /* get request */
-            if (bytes > 0)
-            {
-                message[bytes] = 0;
-                printf("Server msg: \"%s\"\n", message);
-                fflush(stdout);
-            }
-            else
-            {
-                perror("SSL_read()"); //server not responding to query
-            }
+    if (bytes > 0)
+    {
+        message[bytes] = 0;
+        printf("Server msg: \"%s\"\n", message);
+        fflush(stdout);
+    }
+    else
+    {
+        perror("SSL_read()"); //server not responding to query
+    }
 }
 
 /* When a line is entered using the readline library, this function
@@ -142,7 +142,7 @@ void ReplyFromServer()
    server messages in the loop in main(). */
 void readline_callback(char *line)
 {
-    char buffer[256];
+    //char buffer[256];
     if (NULL == line) {
         rl_callback_handler_remove();
         signal_handler(SIGTERM);
@@ -224,8 +224,8 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
-        char *receiver = strndup(&(line[i]), j - i - 1);
-        char *message = strndup(&(line[j]), j - i - 1);
+        //char *receiver = strndup(&(line[i]), j - i - 1);
+        //char *message = strndup(&(line[j]), j - i - 1);
         /* Send private message to receiver. */
         return;
     }
@@ -258,7 +258,7 @@ void readline_callback(char *line)
     }
     else {
         /* if the line is a message  */
-        SSL_write(server_ssl, line, sizeof(line)); 
+        SSL_write(server_ssl, line, strlen(line)); 
     }
 
     /* Sent the buffer to the server. */
@@ -273,10 +273,10 @@ SSL_CTX* InitCTX()
  
     OpenSSL_add_all_algorithms();  /* Load cryptos, et.al. */
     SSL_load_error_strings();   /* Bring in and register error messages */
-    ctx = SSL_CTX_new(TLSv1_client_method());   /* Create new context */
+    ctx = SSL_CTX_new(SSLv23_client_method());   /* Create new context */
     if (ctx == NULL)
     {
-        perror("SSL_CTX_new(TLSv1_client_method())");
+        perror("SSL_CTX_new(SSLv23_client_method())");
         exit(EXIT_FAILURE);
     }
     return ctx;
@@ -314,9 +314,9 @@ int main(int argc, char **argv)
     }
 
     SSL_CTX *ctx;
-    char message[MAX_MESSAGE_LENTH];
-    bzero(&message, sizeof(message));
-    int bytes;
+    //char message[MAX_MESSAGE_LENTH];
+    //bzero(&message, sizeof(message));
+    //int bytes;
     char *hostname, *port;
 
     initialize_exitfd();
