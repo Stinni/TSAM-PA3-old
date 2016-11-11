@@ -5,7 +5,7 @@ Usernames: agust11 & kristinnf13
 
 ---
 
-SSL
+SSL:
 
 We started with following a guide on how to set up an SSL connection on both server and client.
 That guide was provided in the project description.
@@ -22,7 +22,7 @@ and at the bottom of tat page there's a 'prev' link to the client part.
 
 ---
 
-Multiple clients
+Multiple clients:
 
 Besides using the linux manual and other official material on both SSL and the select function,
 we found these sources helpful for the select (serving multiple clients) aswell:
@@ -31,7 +31,7 @@ http://stackoverflow.com/questions/26873490/handle-multiple-clients-two-way-comm
 
 ---
 
-Protocol communications
+Protocol communications:
 
 The protocol itself is very simple. Even thought we had read a bit of the IRC protocol and had this
 https://tools.ietf.org/html/rfc2812#section-3.6.1
@@ -67,7 +67,7 @@ Where the server sends the reponse and then the messages in the same message.
 
 ---
 
-What was implemented, how it was implemented and what wasn't implemented
+What was implemented, how it was implemented and what wasn't implemented:
 
 First of all, all communication between the server and the clients go through a SSL connection.
 
@@ -93,12 +93,30 @@ Therefore we didn't hash or encrypt the passwords in any way. Passwords are sent
 in the ClientInfo struct but it never gets used.
 Since the authentication part isn't done, no logging is done for it either.
 
+When a client connects, we decided that they'd get added to a chatroom that we called "Lobby"
+Before changing one's username with the '/user' command you're only known on the server as "Anonymous user"
+The user can't change the chatroom with the '/join' command unless he or she has changed the username.
+
+We implemented private messages with the '/say' command. Even anonymous users can send private messages.
+On the other hand, anonymous users can't recieve private messages.
+
+We did not implement the idle timeouts or the game functionality.
+
 ---
 
 Answers to questions:
 
 6.2:
-
+In our case, the passwords are kept as plain text strings in both client and server... :)
 
 7.2:
+We had different understanding of logging here.
+Logging a private message for a user that isn't logged in so that he or she will recieve it later.
+Which sounds good except that it's actually logging a private message on the server. Someone might get hold of a message that's not intended for them.
+The second understanding was logging as one sends a message, not the actual message.
+That also sounds allright but do we need to or even want to? Do we want to keep track of who's sending messages to whom.
+We think that logging of messages should only be in the sense of logging the actual messages and only on the client side.
+The client can turn that feature on or off, like in the IRC clients that one of us has used.
+Of course, in the perfect world, both parties should have to agree to said logging but we've not seen that done yet with IRC anyway.
 
+---

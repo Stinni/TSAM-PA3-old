@@ -446,11 +446,11 @@ int main(int argc, char **argv)
         FD_ZERO(&rfds);
         FD_SET(STDIN_FILENO, &rfds);
         FD_SET(exitfd[0], &rfds);
+        FD_SET(server_fd, &rfds);
         timeout.tv_sec = 5;
         timeout.tv_usec = 0;
-        FD_SET(server_fd, &rfds);
+
         int r = select(server_fd + 1, &rfds, NULL, NULL, &timeout);
-        
         if (r < 0) {
             if (errno == EINTR) {
                 /* This should either retry the call or
