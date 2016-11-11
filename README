@@ -3,18 +3,49 @@ University of Reykjavík, autumn 2016
 Students: Ágúst Aðalsteinsson & Kristinn Heiðar Freysteinsson
 Usernames: agust11 & kristinnf13
 
+---
 
-most of SSL setup structure and functions were taken from here:
+SSL
+
+We started with following a guide on how to set up an SSL connection on both server and client.
+That guide was provided in the project description.
+We had created a key and a certificate with one of the guides that were provided but, even though
+those guides helped a bit, we found the guide in the link below of more help:
 http://simplestcodings.blogspot.is/2010/08/secure-server-client-using-openssl-in-c.html
 
+That's where we found the command that we used to make the key and cert file that's included in our handin.
+"openssl req -x509 -nodes -days 365 -newkey rsa:1024 -keyout mycert.pem -out mycert.pem"
+
+Most of the SSL setup structure and functions were taken from there and also from here:
+http://h41379.www4.hpe.com/doc/83final/ba554_90007/ch05s04.html?btnNext=next%C2%A0%EF%BF%BD
+and at the bottom of tat page there's a 'prev' link to the client part.
+
+---
+
+Multiple clients
+
+Besides using the linux manual and other official material on both SSL and the select function,
+we found these sources helpful for the select (serving multiple clients) aswell:
+http://www.binarytides.com/multiple-socket-connections-fdset-select-linux/
+http://stackoverflow.com/questions/26873490/handle-multiple-clients-two-way-communication-using-sockets-in-c
+
+---
+
 Protocol communications
+
+The protocol itself is very simple. Even thought we had read a bit of the IRC protocol and had this
+https://tools.ietf.org/html/rfc2812#section-3.6.1
+open the whole time, we didn't use it much.
+
+Every message is a string that starts with either REQUEST or RESPONSE, depending on whether it's the server
+or the client that's sending it.
 
 The client sends the following messages to the server for requests:
 	- "REQUEST_GAME"
 	- "REQUEST_SAYY"
 	- "REQUEST_ROLL"
- 	- "REQUEST_JOIN"
- 	- "REQUEST_USER"
+	- "REQUEST_JOIN"
+	- "REQUEST_USER"
 	- "REQUEST_LIST"
 	- "REQUEST_WHOO"
 
@@ -33,4 +64,41 @@ The Server response messages are:
 	- "RESPONSE_WHOO"
 
 Where the server sends the reponse and then the messages in the same message.
+
+---
+
+What was implemented, how it was implemented and what wasn't implemented
+
+First of all, all communication between the server and the clients go through a SSL connection.
+
+A logger was implemented and is in seperate files, 'logger.h' and 'logger.c' and the files are
+of course included in the handin. The Makefile takes care of compiling it.
+All clients connecting to the server and disconnecting from it are logged into a file called 'log.txt'
+We also included an error logger in the same files which logs error to a file called 'err.txt'
+
+Select is used to be able to handle multiple connections.
+All info about each client is kept in a struct that we called ClientInfo. Pointers to each one are kept
+in a GTree and special functions were made for iterating through the tree.
+The 'usersTree' uses the file descriptors as keys so the extra 'sockaddr_in_cmp' function was removed.
+
+Lists of clients in each chatroom are also kept in a GTree and there're also special functions for the
+work needed with those.
+
+A few global variables are kept in both server and client. Those are kept as global variables so that they
+can be used in these special functions for the GTree iterations and also so that cleanup can be done when
+shutting down either client or server.
+
+A client can update it's username with the '/user' command but we did not get to the authentication part.
+Therefore we didn't hash or encrypt the passwords in any way. Passwords are sent to the server and stored
+in the ClientInfo struct but it never gets used.
+Since the authentication part isn't done, no logging is done for it either.
+
+---
+
+Answers to questions:
+
+6.2:
+
+
+7.2:
 
