@@ -434,7 +434,7 @@ int main(int argc, char **argv)
 
     /* Read characters from the keyboard while waiting for input.
      */
-    prompt = g_strdup_printf("%s", "> ");
+    prompt = g_strdup_printf("%s", "anon@Lobby> ");
     rl_callback_handler_install(prompt, (rl_vcpfunc_t*) &readline_callback);
     for (;;) {
         fd_set rfds;
