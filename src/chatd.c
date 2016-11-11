@@ -63,7 +63,7 @@ typedef struct {
 } ClientInfo;
 
 /* Global variables */
-ClientInfo*   clientInfo;
+ClientInfo*   current_cInfo;
 static GTree* usersTree;
 static GTree* chatroomsTree;
 static int    max_sd;
@@ -72,15 +72,28 @@ static int    max_sd;
 void sigint_handler(int G_GNUC_UNUSED sig)
 {
     // Do cleanup and terminate the program!
-    // TODO: Implement
+    g_tree_destroy(chatroomsTree);
+    g_tree_destroy(usersTree);
+    //close(server);
+    //SSL_CTX_free(ssl_ctx);
     write(STDOUT_FILENO, "\nBye...\n", 8);
     exit(EXIT_SUCCESS);
 }
 
-/* This can be used to build instances of GTree that index on
+/* This is used to build instances of GTree that index on
    the file descriptor of a connection. */
 static gint fd_cmp(gconstpointer fd1,  gconstpointer fd2, gpointer G_GNUC_UNUSED data) {
      return GPOINTER_TO_INT(fd1) - GPOINTER_TO_INT(fd2);
+}
+
+void chatroomsTree_key_destroy(gpointer data) {
+    gchar *tmp = (gchar*) data;
+    g_free(tmp);
+}
+
+void chatroomsTree_value_destroy(gpointer data) {
+    GSList *tmp = (GSList*) data;
+    g_slist_free(tmp);
 }
 
 /* This is used to go through the usersTree and create a list of
@@ -124,13 +137,22 @@ static gboolean set_readfds(gpointer G_GNUC_UNUSED key, gpointer value, gpointer
 }
 
 static gboolean findUser(gpointer G_GNUC_UNUSED key, gpointer value, gpointer data) {
-    ClientInfo* tmp = (ClientInfo*) value;
-    char *username = (char*) data;
+    ClientInfo *tmp = (ClientInfo*) value;
+    gchar *reciever = (gchar*) data;
 
-    if(g_strcmp0(tmp->username, username) == 0) {
+    printf("In the findUser function. Checking user with name: %s\n", tmp->username);
+    fflush(stdout);
+
+    if(g_str_has_prefix(tmp->username, reciever) && g_str_has_prefix(reciever, tmp->username)) {
+        // We check both ways to make sure that it's the same user
+        // and not a user with a name that starts the same
         printf("User found!\n");
+        fflush(stdout);
+        return TRUE;
     }
 
+    printf("User NOT found!\n");
+    fflush(stdout);
     return FALSE;
 }
 
@@ -138,22 +160,24 @@ static void sendToUser(gpointer data, gpointer user_data) {
     ClientInfo* tmp = (ClientInfo*)data;
     char* message = user_data;
 
-    SSL_write(tmp->ssl, message, strlen(message));
+    if(tmp->sock != current_cInfo->sock) {
+        SSL_write(tmp->ssl, message, strlen(message));
+    }
 }
 
 gboolean checkClients(gpointer key, gpointer value, gpointer data) {
     /* Get the client info from the tree */
-    ClientInfo* tmp = (ClientInfo*) value;
+    current_cInfo = (ClientInfo*) value; // Set the global pointer variable so it can be used in the above functions (if needed)
     fd_set *readfds = (fd_set*) data;
 
-    if(FD_ISSET(tmp->sock, readfds))
+    if(FD_ISSET(current_cInfo->sock, readfds))
     {
         int bytes;
         char message[MAX_MESSAGE_LENGTH];
         memset(&message, 0, sizeof(message));
 
         //Check if it was for closing, and also read the incoming message
-        if((bytes = SSL_read(tmp->ssl, message, sizeof(message) - 1)) > 0)
+        if((bytes = SSL_read(current_cInfo->ssl, message, sizeof(message) - 1)) > 0)
         {
             // Work with incoming messages here!
             message[bytes] = 0;
@@ -161,10 +185,10 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
             {
                 gchar **msgSplit = g_strsplit_set(message, " ", 4); // split incoming message into 4 parts
                 if(strlen(msgSplit[1]) > 0 && strlen(msgSplit[2]) > 0) { // we want the message to include a password!
-                    strcpy(tmp->username, msgSplit[1]);
-                    strcpy(tmp->password, msgSplit[2]);
+                    strcpy(current_cInfo->username, msgSplit[1]);
+                    strcpy(current_cInfo->password, msgSplit[2]);
                     gchar *msgString = g_strconcat(RESP_USER, " Username has been changed to ", msgSplit[1], "!\n", NULL);
-                    if(SSL_write(tmp->ssl, msgString, strlen(msgString)) < 0) {
+                    if(SSL_write(current_cInfo->ssl, msgString, strlen(msgString)) < 0) {
                         perror("SSL_write()");
                     }
                     g_free(msgString);
@@ -182,19 +206,29 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
                     gchar *room = g_strdup_printf("%s", msgSplit[1]);
 
                     /* first we remove the user from the current chatroom */
-                    GSList *currentList = g_tree_lookup(chatroomsTree, tmp->chatroom);
-                    currentList = g_slist_remove(currentList, tmp);
-                    g_tree_replace(chatroomsTree, tmp->chatroom, currentList);
+                    GSList *currentList = g_tree_lookup(chatroomsTree, current_cInfo->chatroom);
+                    currentList = g_slist_remove(currentList, current_cInfo);
+                    if(currentList == NULL) {
+                        /* If the user was the only one in that chatroom need to update the tree's list pointer.
+                         * We first have to create a new pointer to the key string as the old one gets destroyed
+                         */
+                        gchar *tmpRoom = g_strdup_printf("%s", current_cInfo->chatroom);
+                        g_tree_replace(chatroomsTree, tmpRoom, currentList);
+                    }
 
                     /* and then we add the user to the new chatroom */
                     GSList *userList = g_tree_lookup(chatroomsTree, room);
-                    userList = g_slist_prepend(userList, tmp);
-                    g_tree_replace(chatroomsTree, room, userList);
-                    strcpy(tmp->chatroom, room);
+                    GSList *newUserList = g_slist_prepend(userList, current_cInfo); // The prepend function can return a new pointer
+                    if(userList != newUserList) { // We have to check if we need to update the tree's list pointer.
+                        // the 'room' string can be used here, it's been allocated and won't be freed till the list changes
+                        g_tree_replace(chatroomsTree, room, newUserList);
+                    }
+
+                    strcpy(current_cInfo->chatroom, room);
 
                     /* Send a welcome message to chatroom */ 
                     gchar *msgString = g_strconcat(RESP_JOIN, " Welcome to the chat room ", room, "!\n", NULL);
-                    if(SSL_write(tmp->ssl, msgString, strlen(msgString)) < 0) {
+                    if(SSL_write(current_cInfo->ssl, msgString, strlen(msgString)) < 0) {
                         perror("SSL_write()");
                     }
                     g_free(msgString);
@@ -211,7 +245,7 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
                 allRooms = g_string_append(allRooms, " \nChatrooms:\n");
                 g_tree_foreach(chatroomsTree, getAllChatroomsAsString, allRooms);
 
-                if(SSL_write(tmp->ssl, allRooms->str, strlen(allRooms->str)) < 0) {
+                if(SSL_write(current_cInfo->ssl, allRooms->str, strlen(allRooms->str)) < 0) {
                     perror("SSL_write()");
                 }
                 g_string_free(allRooms, 1);
@@ -223,13 +257,14 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
                     // req string along with a username but no message, we'll ignore this
                     gchar *reciever = g_strdup_printf("%s", msgSplit[1]);
 
-                    g_tree_foreach(usersTree, findUser, reciever);
+                    //g_tree_foreach(usersTree, findUser, reciever);
+                    printf("Client is trying to send a message to %s\n", reciever);
 
                     g_free(reciever);
                 }
                 else
                 {
-                    logError("Client tried to send private message without including either reciever and/or message");
+                    logError("Client tried to send private message without including the reciever and/or message");
                 }
                 g_strfreev(msgSplit);
             }
@@ -239,7 +274,7 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
                 allUsers = g_string_append(allUsers, "\n");
                 g_tree_foreach(usersTree, getAllUsersAsString, allUsers);
 
-                if(SSL_write(tmp->ssl, allUsers->str, strlen(allUsers->str)) < 0) {
+                if(SSL_write(current_cInfo->ssl, allUsers->str, strlen(allUsers->str)) < 0) {
                     perror("SSL_write()");
                 }
                 g_string_free(allUsers, 1);
@@ -254,9 +289,11 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
             }
             else
             {
+                printf("THIS IS AT THE START OF SENDING A MESSAGE TO EVERYONE!\n");
+                fflush(stdout);
                 /* Message should be sent to everyone in the same chatroom as the sender */
-                GSList *currentList = g_tree_lookup(chatroomsTree, tmp->chatroom);
-                gchar *msg = g_strconcat(tmp->username, " says: ", message, NULL);
+                GSList *currentList = g_tree_lookup(chatroomsTree, current_cInfo->chatroom);
+                gchar *msg = g_strconcat(current_cInfo->username, " says: ", message, NULL);
                 g_slist_foreach(currentList, sendToUser, msg);
                 g_free(msg);
             }
@@ -264,25 +301,31 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
         else if(bytes == 0)
         {
             // Somebody disconnected , get his details and log
-            gchar *clientIP = g_strdup_printf("%s", tmp->ip);
-            gchar *clientPort = g_strdup_printf("%s", tmp->port);
+            gchar *clientIP = g_strdup_printf("%s", current_cInfo->ip);
+            gchar *clientPort = g_strdup_printf("%s", current_cInfo->port);
             logDisconnected(clientIP, clientPort);
             g_free(clientPort);
             g_free(clientIP);
 
             /* Remove the user from the current chatroom */
-            GSList *currentList = g_tree_lookup(chatroomsTree, tmp->chatroom);
-            currentList = g_slist_remove(currentList, tmp);
-            g_tree_replace(chatroomsTree, tmp->chatroom, currentList);
+            GSList *currentList = g_tree_lookup(chatroomsTree, current_cInfo->chatroom);
+            currentList = g_slist_remove(currentList, current_cInfo);
+            if(currentList == NULL) {
+                /* If the user was the only one in that chatroom need to update the tree's list pointer.
+                 * We first have to create a new pointer to the key string as the old one gets destroyed
+                 */
+                gchar *tmpRoom = g_strdup_printf("%s", current_cInfo->chatroom);
+                g_tree_replace(chatroomsTree, tmpRoom, currentList);
+            }
 
             // Close the socket, free the ssl and remove from the tree
-            close(tmp->sock);
-            SSL_free(tmp->ssl);            /* release SSL state */
+            close(current_cInfo->sock);
+            SSL_free(current_cInfo->ssl); /* release SSL state */
             g_tree_remove(usersTree, key);
         }
         else /* Some error occurred */
         {
-            int err = SSL_get_error(tmp->ssl, bytes);
+            int err = SSL_get_error(current_cInfo->ssl, bytes);
             switch(err)
             {
                 case SSL_ERROR_NONE:
@@ -410,8 +453,10 @@ int main(int argc, char **argv)
     socklen_t len = (socklen_t) sizeof(client); 
 
     usersTree     = g_tree_new((GCompareFunc) fd_cmp);
-    chatroomsTree = g_tree_new((GCompareFunc) strcmp);
-    g_tree_insert(chatroomsTree, "Lobby", NULL);
+    chatroomsTree = g_tree_new_full((GCompareDataFunc) strcmp, NULL, (GDestroyNotify) chatroomsTree_key_destroy,
+                                    (GDestroyNotify) chatroomsTree_value_destroy);
+    gchar *theLobby = g_strdup_printf("%s", "Lobby"); // The key has to be a pointer to a string
+    g_tree_insert(chatroomsTree, theLobby, NULL);
 
      /* Receive and handle messages. */
     for(;;) {
@@ -456,12 +501,13 @@ int main(int argc, char **argv)
             }
             else
             {
-                clientInfo = g_new0(ClientInfo, 1);
-                clientInfo->ssl = ssl;
-                clientInfo->sock = new_socket;
-                strcpy(clientInfo->chatroom, "Lobby");
-                strcpy(clientInfo->ip, inet_ntoa(client.sin_addr));
-                sprintf(clientInfo->port, "%d", ntohs(client.sin_port));
+                current_cInfo = g_new0(ClientInfo, 1);
+                current_cInfo->ssl = ssl;
+                current_cInfo->sock = new_socket;
+                strcpy(current_cInfo->username, "Anonymous user");
+                strcpy(current_cInfo->chatroom, "Lobby");
+                strcpy(current_cInfo->ip, inet_ntoa(client.sin_addr));
+                sprintf(current_cInfo->port, "%d", ntohs(client.sin_port));
 
                 /* Logging that a client has connected to the server */
                 gchar *clientIP = g_strdup_printf("%s", inet_ntoa(client.sin_addr));
@@ -474,12 +520,15 @@ int main(int argc, char **argv)
                  * the client Info as value */
                 int *key = g_new0(int, 1);
                 memcpy(key, &new_socket, sizeof(int));
-                g_tree_insert(usersTree, key, clientInfo);
+                g_tree_insert(usersTree, key, current_cInfo);
 
                 /* add the user to the Lobby chatroom */
-                GSList* roomList = g_tree_lookup(chatroomsTree, "Lobby");
-                roomList = g_slist_prepend(roomList, clientInfo);
-                g_tree_replace(chatroomsTree, "Lobby", roomList);
+                GSList *userList = g_tree_lookup(chatroomsTree, "Lobby");
+                GSList *newUserList = g_slist_prepend(userList, current_cInfo); // The prepend function can return a new pointer
+                if(userList != newUserList) { // We have to check if we need to update the tree's list pointer.
+                    gchar *theRoom = g_strdup_printf("%s", "Lobby");     // we have to create a new pointer to the "Lobby" string
+                    g_tree_replace(chatroomsTree, theRoom, newUserList); // each time because the old string gets destroyed
+                }
 
                 /* Send a welcome message to the new client */
                 if(SSL_write(ssl, WELCOME_MSG, strlen(WELCOME_MSG)) < 0)
@@ -494,10 +543,4 @@ int main(int argc, char **argv)
         // recieved. checkClients() function is used for that.
         g_tree_foreach(usersTree, checkClients, &readfds);
     }
-
-    g_tree_destroy(chatroomsTree);
-    g_tree_destroy(usersTree);
-    close(server);
-    SSL_CTX_free(ssl_ctx);
-    exit(EXIT_SUCCESS);
 }

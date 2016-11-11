@@ -127,6 +127,11 @@ static void initialize_exitfd(void)
 static int server_fd;
 static SSL *server_ssl;
 
+/* This variable is to access the SSL context. It's only global so it
+ * can be used to free it when shutting down the client.
+ */
+static SSL_CTX *ctx;
+
 /* This variable shall point to the name of the user. The initial value
    is NULL. Set this variable to the username once the user managed to be
    authenticated. */
@@ -188,6 +193,14 @@ void Message_From_Server()
             fflush(stdout);
        }
     }
+    else if(bytes == 0)
+    {
+        SSL_free(server_ssl);
+        SSL_CTX_free(ctx);        /* release context */
+        printf("The server terminated the connection!\n");
+        fflush(stdout);
+        exit(EXIT_SUCCESS);
+    }
     else
     {
         perror("SSL_read()"); //server not responding to query
@@ -218,7 +231,6 @@ char* create_prompt(char *first, char *last)
    server messages in the loop in main(). */
 void readline_callback(char *line)
 {
-    //char buffer[256];
     if (NULL == line) {
         rl_callback_handler_remove();
         signal_handler(SIGTERM);
@@ -244,7 +256,7 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
-        char *username = strdup(&(line[i+2])); /* Since int i is 4 we need it as 6...*/
+        char *username = strdup(&(line[i]));
         SSL_write(server_ssl, create_message_to_server(REQ_GAME, username), 256); /* send list request */
         /* Start game */
         return;
@@ -336,21 +348,13 @@ void readline_callback(char *line)
         SSL_write(server_ssl, REQ_WHO, sizeof(REQ_WHO)); /* send list request */
         return;
     }
-    else {
-        /* if the line is a message  */
-        SSL_write(server_ssl, line, strlen(line)); 
-    }
+
+    SSL_write(server_ssl, line, strlen(line)); /* Sent the input to the server. */
     rl_redisplay();
-    /* Sent the buffer to the server. */
-    //snprintf(buffer, 255, "Message: %s\n", line);
-    //write(STDOUT_FILENO, buffer, strlen(buffer));
-    //fsync(STDOUT_FILENO);
 }
 
-SSL_CTX* InitCTX()
+static void InitCTX()
 {
-    SSL_CTX *ctx;
- 
     OpenSSL_add_all_algorithms();  /* Load cryptos, et.al. */
     SSL_load_error_strings();   /* Bring in and register error messages */
     ctx = SSL_CTX_new(SSLv23_client_method());   /* Create new context */
@@ -359,10 +363,9 @@ SSL_CTX* InitCTX()
         perror("SSL_CTX_new(SSLv23_client_method())");
         exit(EXIT_FAILURE);
     }
-    return ctx;
 }
 
-int OpenConnection(const char *hostname, int port)
+static int OpenConnection(const char *hostname, int port)
 {
     int sd;
     struct sockaddr_in addr;
@@ -393,10 +396,6 @@ int main(int argc, char **argv)
          exit(EXIT_FAILURE);
     }
 
-    SSL_CTX *ctx;
-    //char message[MAX_MESSAGE_LENTH];
-    //bzero(&message, sizeof(message));
-    //int bytes;
     char *hostname, *port;
 
     initialize_exitfd();
@@ -406,7 +405,7 @@ int main(int argc, char **argv)
     hostname = argv[1];
     port = argv[2];
 
-    ctx = InitCTX();
+    InitCTX();
     server_fd = OpenConnection(hostname, atoi(port));
 
     /* TODO:
@@ -421,13 +420,6 @@ int main(int argc, char **argv)
 
     /* Use the socket for the SSL connection. */
     SSL_set_fd(server_ssl, server_fd);
-
-    /* Now we can create BIOs and use them instead of the socket.
-     * The BIO is responsible for maintaining the state of the
-     * encrypted connection and the actual encryption. Reads and
-     * writes to sock_fd will insert unencrypted data into the
-     * stream, which even may crash the server.
-     */
 
     /* Set up secure connection to the chatd server. */
     if (SSL_connect(server_ssl) < 0) {
@@ -495,7 +487,7 @@ int main(int argc, char **argv)
             if (signum == SIGINT) {
             /* Don't do anything. */
             } else if (signum == SIGTERM) {
-            /* Clean-up and exit. */
+                /* Clean-up and exit. */
                 close(server_fd);         /* close socket */
                 SSL_free(server_ssl);
                 SSL_CTX_free(ctx);        /* release context */
