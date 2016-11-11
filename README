@@ -1,3 +1,8 @@
+SSL Chat Server & Client - Programming Assignment 3 for Computer Networking
+University of Reykjavík, autumn 2016
+Students: Ágúst Aðalsteinsson & Kristinn Heiðar Freysteinsson
+Usernames: agust11 & kristinnf13
+
 
 most of SSL setup structure and functions were taken from here:
 http://simplestcodings.blogspot.is/2010/08/secure-server-client-using-openssl-in-c.html

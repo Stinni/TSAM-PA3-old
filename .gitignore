@@ -1,4 +1,5 @@
 *.o
+*.old
 !getpasswd.o
 chat
 chatd

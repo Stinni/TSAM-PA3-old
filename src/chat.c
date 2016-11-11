@@ -1,3 +1,7 @@
+// SSL Chat Server & Client - Programming Assignment 3 for Computer Networking
+// University of Reykjavík, autumn 2016
+// Students: Ágúst Aðalsteinsson & Kristinn Heiðar Freysteinsson
+// Usernames: agust11 & kristinnf13
 
 #include <assert.h>
 #include <sys/select.h>
@@ -19,6 +23,9 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+/* GLib header */
+#include <glib.h>
+
 /* For nicer interaction, we use the GNU readline library. */
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -28,11 +35,27 @@
 
 /* Constants */
 #define MAX_MESSAGE_LENTH 1025
+/*CLIENT MESSAGES */
+#define REQ_GAME "REQUEST_GAME"
+#define REQ_SAY  "REQUEST_SAYY"
+#define REQ_ROLL "REQUEST_ROLL"
+#define REQ_JOIN "REQUEST_JOIN"
+#define REQ_USER "REQUEST_USER"
+#define REQ_LIST "REQUEST_LIST"
+#define REQ_WHO  "REQUEST_WHOO"
 
+/* SERVER RESPONSES */
+
+#define RESP_GAME "RESPONSE_GAME"
+#define RESP_SAY  "RESPONSE_SAYY"
+#define RESP_ROLL "RESPONSE_ROLL"
+#define RESP_JOIN "RESPONSE_JOIN"
+#define RESP_USER "RESPONSE_USER"
+#define RESP_LIST "RESPONSE_LIST"
+#define RESP_WHO  "RESPONSE_WHOO"
 /* This variable holds a file descriptor of a pipe on which we send a
  * number if a signal is received. */
  static int exitfd[2];
-
 
 /* If someone kills the client, it should still clean up the readline
    library, otherwise the terminal is in a inconsistent state. The
@@ -112,14 +135,14 @@ static char *user;
 /* This variable shall point to the name of the chatroom. The initial
    value is NULL (not member of a chat room). Set this variable whenever
    the user changed the chat room successfully. */
-static char *chatroom;
+static gchar *chatroom;
 
 /* This prompt is used by the readline library to ask the user for
  * input. It is good style to indicate the name of the user and the
  * chat room he is in as part of the prompt. */
-static char *prompt;
+static gchar *prompt;
 
-void ReplyFromServer()
+void Message_From_Server()
 {
     char message[MAX_MESSAGE_LENTH];
     memset(&message, 0, sizeof(message));
@@ -127,15 +150,68 @@ void ReplyFromServer()
     if (bytes > 0)
     {
         message[bytes] = 0;
-        printf("Server msg: \"%s\"\n", message);
-        fflush(stdout);
+        int i = 13;
+        if(strncmp("RESPONSE", message, 8) == 0) {
+            if(strncmp(RESP_GAME, message, i) == 0){
+                /*TO DO */
+                return;
+            }
+            if(strncmp(RESP_ROLL, message, i) == 0){
+                /*TO DO */
+                return;
+            }
+            if(strncmp(RESP_USER, message, i) == 0){
+                /*TO DO */
+                return;
+            }
+            /* PRIVATE MESSAGES */ 
+            if(strncmp(RESP_SAY, message, i) == 0){
+                gchar *echo = g_strdup_printf("%s", &(message[i+1]));
+                printf("Private message from -> %s\n", echo);
+                fflush(stdout);
+                g_free(echo);
+                rl_redisplay();
+                return;
+            }
+            else {
+                gchar *echo = g_strdup_printf("%s", &(message[i+1]));
+                printf("%s\n", echo);
+                fflush(stdout);
+                g_free(echo);
+                rl_redisplay();
+            }
+        
+       }
+       else /*Chatroom messages */
+       {
+            printf("%s\n", message);
+            fflush(stdout);
+       }
     }
     else
     {
         perror("SSL_read()"); //server not responding to query
     }
 }
+char* create_message_to_server(char *REQ, char *message)
+{
+    char *messageToServer = malloc(strlen(REQ) + strlen(message) + 2);
+    strcpy(messageToServer, REQ); //copy the REQUEST_GAME to 
+    strcat(messageToServer, " "); //Add a space between the request and the username
+    strcat(messageToServer, message); // add the username and message to the message to the server..
 
+    return messageToServer;
+}
+char* create_prompt(char *first, char *last)
+{
+    char *new_prompt = malloc(strlen(first) + strlen(last) + 4);
+    strcpy(new_prompt, first); //copy the REQUEST_GAME to 
+    strcat(new_prompt, "@"); //Add a space between the request and the username
+    strcat(new_prompt, last); // add the username and message to the message to the server..
+    strcat(new_prompt, "> "); //Add a space between the request and the username
+
+    return new_prompt;
+}
 /* When a line is entered using the readline library, this function
    gets called to handle the entered line. Implement the code to
    handle the user requests in this function. The client handles the
@@ -154,16 +230,13 @@ void readline_callback(char *line)
     if ((strncmp("/bye", line, 4) == 0) ||
         (strncmp("/quit", line, 5) == 0) ||
         (strncmp("/exit", line, 5) == 0)) {
-        char reply[27] = "CLOSE_CONNECTION_FROM_USER\0"; //Close connection request
-        SSL_write(server_ssl, reply, sizeof(reply)); /* send quit request */
-
         rl_callback_handler_remove();
         signal_handler(SIGTERM);
         return;
     }
     if (strncmp("/game", line, 5) == 0) {
         /* Skip whitespace */
-        int i = 4;
+        int i = 5;
         while (line[i] != '\0' && isspace(line[i])) { i++; }
         if (line[i] == '\0') {
             write(STDOUT_FILENO, "Usage: /game username\n", 29);
@@ -171,34 +244,44 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
-        SSL_write(server_ssl, line, 200); /* send list request */
-        ReplyFromServer();
+        char *username = strdup(&(line[i+2])); /* Since int i is 4 we need it as 6...*/
+        SSL_write(server_ssl, create_message_to_server(REQ_GAME, username), 256); /* send list request */
         /* Start game */
         return;
     }
-    if (strncmp("/join", line, 5) == 0) {
+    if (g_str_has_prefix(line, "/join")) {
         int i = 5;
         /* Skip whitespace */
         while (line[i] != '\0' && isspace(line[i])) { i++; }
-        if (line[i] == '\0') {
+        if(line[i] == '\0') {
             write(STDOUT_FILENO, "Usage: /join chatroom\n", 22);
             fsync(STDOUT_FILENO);
             rl_redisplay();
             return;
         }
-        char *chatroom = strdup(&(line[i]));
+        if(user == NULL) {
+            write(STDOUT_FILENO, "You have to log in first. Use /user to do so\n", 45);
+            fsync(STDOUT_FILENO);
+            rl_redisplay();
+            return;
+        }
+
+        g_free(chatroom);
+        chatroom = g_strdup_printf("%s", &(line[i]));
         /* Process and send this information to the server. */
-        /* Maybe update the prompt. */
-        free(prompt);
-        prompt = NULL; /* What should the new prompt look like? */
+        gchar *msg = g_strconcat(REQ_JOIN, " ", chatroom, NULL);
+        SSL_write(server_ssl, msg, strlen(msg)); /* send join request */
+        g_free(msg);
+
+        g_free(prompt);
+        prompt = g_strconcat(user, "@", chatroom, "> ", NULL);
         rl_set_prompt(prompt);
+        rl_redisplay();
         return;
     }
     if (strncmp("/list", line, 5) == 0) {
         /* Query all available chat rooms */
-        char reply[14] = "REQUEST_LIST\0"; //LIST request
-        SSL_write(server_ssl, reply, sizeof(reply)); /* send list request */
-        ReplyFromServer();
+        SSL_write(server_ssl, REQ_LIST, sizeof(REQ_LIST)); /* send list request */
         return;
     }
     if (strncmp("/roll", line, 5) == 0) {
@@ -215,15 +298,9 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
-        /* Skip whitespace */
-        int j = i+1;
-        while (line[j] != '\0' && isgraph(line[j])) { j++; }
-        if (line[j] == '\0') {
-            write(STDOUT_FILENO, "Usage: /say username message\n", 29);
-            fsync(STDOUT_FILENO);
-            rl_redisplay();
-            return;
-        }
+        gchar *usernameAndMessage = g_strdup_printf("%s", &(line[i]));
+        char *msg = create_message_to_server(REQ_SAY, usernameAndMessage);
+        SSL_write(server_ssl, msg, strlen(msg)); /* send say request */
         //char *receiver = strndup(&(line[i]), j - i - 1);
         //char *message = strndup(&(line[j]), j - i - 1);
         /* Send private message to receiver. */
@@ -239,28 +316,31 @@ void readline_callback(char *line)
             rl_redisplay();
             return;
         }
-        char *new_user = strdup(&(line[i]));
+        user = strdup(&(line[i]));
         char passwd[48];
         getpasswd("Password: ", passwd, 48);
         /* Process and send this information to the server. */
-        /* Maybe update the prompt. */
-        free(prompt);
-        prompt = NULL; /* What should the new prompt look like? */
+        g_free(prompt);
+        prompt = create_prompt(user, chatroom);
         rl_set_prompt(prompt);
+        char *usernameAndPasswd = create_message_to_server(user, passwd);
+        char *msg = create_message_to_server(REQ_USER, usernameAndPasswd);
+        SSL_write(server_ssl, msg, strlen(msg)); /* send list request */
+        free(usernameAndPasswd);
+        free(msg);
+        //Here we would have put ssl_read to check for errors or success.
         return;
     }
     if (strncmp("/who", line, 4) == 0) {
         /* Query all available users */
-        char reply[13] = "REQUEST_WHO\0"; //WHO request
-        SSL_write(server_ssl, reply, sizeof(reply)); /* send who request */
-        ReplyFromServer();
+        SSL_write(server_ssl, REQ_WHO, sizeof(REQ_WHO)); /* send list request */
         return;
     }
     else {
         /* if the line is a message  */
         SSL_write(server_ssl, line, strlen(line)); 
     }
-
+    rl_redisplay();
     /* Sent the buffer to the server. */
     //snprintf(buffer, 255, "Message: %s\n", line);
     //write(STDOUT_FILENO, buffer, strlen(buffer));
@@ -329,25 +409,25 @@ int main(int argc, char **argv)
     ctx = InitCTX();
     server_fd = OpenConnection(hostname, atoi(port));
 
-	/* TODO:
-	 * We may want to use a certificate file if we self sign the
-	 * certificates using SSL_use_certificate_file(). If available,
-	 * a private key can be loaded using
-	 * SSL_CTX_use_PrivateKey_file(). The use of private keys with
-	 * a server side key data base can be used to authenticate the
-	 * client.
-	 */
+    /* TODO:
+     * We may want to use a certificate file if we self sign the
+     * certificates using SSL_use_certificate_file(). If available,
+     * a private key can be loaded using
+     * SSL_CTX_use_PrivateKey_file(). The use of private keys with
+     * a server side key data base can be used to authenticate the
+     * client.
+     */
     server_ssl = SSL_new(ctx);
 
     /* Use the socket for the SSL connection. */
     SSL_set_fd(server_ssl, server_fd);
 
-	/* Now we can create BIOs and use them instead of the socket.
-	 * The BIO is responsible for maintaining the state of the
-	 * encrypted connection and the actual encryption. Reads and
-	 * writes to sock_fd will insert unencrypted data into the
-	 * stream, which even may crash the server.
-	 */
+    /* Now we can create BIOs and use them instead of the socket.
+     * The BIO is responsible for maintaining the state of the
+     * encrypted connection and the actual encryption. Reads and
+     * writes to sock_fd will insert unencrypted data into the
+     * stream, which even may crash the server.
+     */
 
     /* Set up secure connection to the chatd server. */
     if (SSL_connect(server_ssl) < 0) {
@@ -357,12 +437,12 @@ int main(int argc, char **argv)
         SSL_CTX_free(ctx);        /* release context */
         exit(EXIT_FAILURE);
     }
-    printf("SSL connection using %s\n", SSL_get_cipher(server_ssl));
-    fflush(stdout);
+
+    chatroom = g_strdup_printf("%s", "Lobby"); // The Lobby is always the chatroom you start in
 
     /* Read characters from the keyboard while waiting for input.
      */
-    prompt = strdup("> ");
+    prompt = g_strdup_printf("%s", "> ");
     rl_callback_handler_install(prompt, (rl_vcpfunc_t*) &readline_callback);
     for (;;) {
         fd_set rfds;
@@ -376,8 +456,9 @@ int main(int argc, char **argv)
         FD_SET(exitfd[0], &rfds);
         timeout.tv_sec = 5;
         timeout.tv_usec = 0;
-
-        int r = select(exitfd[0] + 1, &rfds, NULL, NULL, &timeout);
+        FD_SET(server_fd, &rfds);
+        int r = select(server_fd + 1, &rfds, NULL, NULL, &timeout);
+        
         if (r < 0) {
             if (errno == EINTR) {
                 /* This should either retry the call or
@@ -390,11 +471,12 @@ int main(int argc, char **argv)
             break;
         }
         if (r == 0) {
-            write(STDOUT_FILENO, "No message?\n", 12);
-            fsync(STDOUT_FILENO);
+            //write(STDOUT_FILENO, "No message?\n", 12);
+            //fsync(STDOUT_FILENO);
             /* Whenever you print out a message, call this
                to reprint the current input line. */
             rl_redisplay();
+            
             continue;
         }
         if (FD_ISSET(exitfd[0], &rfds)) {
@@ -414,32 +496,22 @@ int main(int argc, char **argv)
             /* Don't do anything. */
             } else if (signum == SIGTERM) {
             /* Clean-up and exit. */
-                break;
+                close(server_fd);         /* close socket */
+                SSL_free(server_ssl);
+                SSL_CTX_free(ctx);        /* release context */
+                exit(EXIT_SUCCESS);
             }
         }
         if (FD_ISSET(STDIN_FILENO, &rfds)) {
             rl_callback_read_char();
         }
-
-        /* Handle messages from the server here! */
-        //bytes = SSL_read(server_ssl, message, sizeof(message) - 1); /* get request */
-        /*if (bytes > 0)
-        {
-            for(int i = 0; i < bytes; i++) printf("%hhx ", message[i]);
-            printf("\n");
-
-            message[bytes] = 0;
-            printf("Client msg: \"%s\"\n", message);
-            fflush(stdout);
+        if (FD_ISSET(server_fd, &rfds)) {
+            /* Handle messages from the server here! */
+            Message_From_Server();
         }
-        else
-        {
-            perror("SSL_read()");
-        }*/
+
+        rl_redisplay();
     }
 
-    SSL_free(server_ssl);
-    close(server_fd);         /* close socket */
-    SSL_CTX_free(ctx);        /* release context */
     return 0;
 }
