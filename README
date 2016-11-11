@@ -6,3 +6,30 @@ Usernames: agust11 & kristinnf13
 
 most of SSL setup structure and functions were taken from here:
 http://simplestcodings.blogspot.is/2010/08/secure-server-client-using-openssl-in-c.html
+
+Protocol communications
+
+The client sends the following messages to the server for requests:
+	- "REQUEST_GAME"
+	- "REQUEST_SAYY"
+	- "REQUEST_ROLL"
+ 	- "REQUEST_JOIN"
+ 	- "REQUEST_USER"
+	- "REQUEST_LIST"
+	- "REQUEST_WHOO"
+
+In some requests the client sends a message along with the request, like REQUEST_USER sends the username and password following the request form.
+
+The others do not need a message like LIST and WHOO, where the server just sends the information when the server can.
+
+The Server response messages are:
+	- "RESPONSE_GAME"
+	- "RESPONSE_SAYY"
+	- "RESPONSE_ROLL"
+	- "RESPONSE_JOIN"
+	- "RESPONSE_USER"
+	- "RESPONSE_LIST"
+	- "RESPONSE_WHOO"
+
+Where the server sends the reponse and then the messages in the same message.
+
