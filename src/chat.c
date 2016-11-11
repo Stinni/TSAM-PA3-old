@@ -300,22 +300,22 @@ void readline_callback(char *line)
         /* roll dice and declare winner. */
         return;
     }
-    if (strncmp("/say", line, 4) == 0) {
+    if(g_str_has_prefix(line, "/say")) {
         /* Skip whitespace */
-        int i = 4;
-        while (line[i] != '\0' && isspace(line[i])) { i++; }
-        if (line[i] == '\0') {
+        gchar **lineSplit = g_strsplit_set(line, " ", 3);
+
+        if(lineSplit[1] == NULL || lineSplit[2] == NULL) {
             write(STDOUT_FILENO, "Usage: /say username message\n", 29);
             fsync(STDOUT_FILENO);
             rl_redisplay();
             return;
         }
-        gchar *usernameAndMessage = g_strdup_printf("%s", &(line[i]));
-        char *msg = create_message_to_server(REQ_SAY, usernameAndMessage);
-        SSL_write(server_ssl, msg, strlen(msg)); /* send say request */
-        //char *receiver = strndup(&(line[i]), j - i - 1);
-        //char *message = strndup(&(line[j]), j - i - 1);
+
         /* Send private message to receiver. */
+        gchar *msg = g_strconcat(REQ_SAY, " ", lineSplit[1], " ", lineSplit[2],  NULL);
+        SSL_write(server_ssl, msg, strlen(msg)); /* send say request */
+        g_free(msg);
+        g_strfreev(lineSplit);
         return;
     }
     if (strncmp("/user", line, 5) == 0) {

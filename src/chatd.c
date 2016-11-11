@@ -126,23 +126,28 @@ static gboolean set_readfds(gpointer G_GNUC_UNUSED key, gpointer value, gpointer
     return FALSE;
 }
 
-static gboolean findUser(gpointer G_GNUC_UNUSED key, gpointer value, gpointer data) {
+static gboolean findAndSendToUser(gpointer G_GNUC_UNUSED key, gpointer value, gpointer data) {
     ClientInfo *tmp = (ClientInfo*) value;
-    gchar *reciever = (gchar*) data;
+    gchar *recieverAndMessage = (gchar*) data;
 
-    printf("In the findUser function. Checking user with name: %s\n", tmp->username);
-    fflush(stdout);
+    /* Adding a space to make sure that it's actually the same username and not just a prefix of another one */
+    gchar *toCompare = g_strconcat(tmp->username, " ", NULL);
 
-    if(g_str_has_prefix(tmp->username, reciever) && g_str_has_prefix(reciever, tmp->username)) {
-        // We check both ways to make sure that it's the same user
-        // and not a user with a name that starts the same
-        printf("User found!\n");
-        fflush(stdout);
+    if(g_str_has_prefix(recieverAndMessage, toCompare) && tmp->sock != current_cInfo->sock) {
+        gchar **tmpSplit = g_strsplit_set(recieverAndMessage, " ", 2);
+        gchar *tmpMsg = g_strconcat(RESP_SAY, " ", current_cInfo->username, ": ", tmpSplit[1], NULL);
+
+        if(SSL_write(tmp->ssl, tmpMsg, strlen(tmpMsg)) < 0) {
+            perror("SSL_write()");
+        }
+
+        g_free(tmpMsg);
+        g_strfreev(tmpSplit);
         return TRUE;
     }
 
-    printf("User NOT found!\n");
-    fflush(stdout);
+    g_free(toCompare);
+
     return FALSE;
 }
 
@@ -151,7 +156,9 @@ static void sendToUser(gpointer data, gpointer user_data) {
     char* message = user_data;
 
     if(tmp->sock != current_cInfo->sock) {
-        SSL_write(tmp->ssl, message, strlen(message));
+        if(SSL_write(tmp->ssl, message, strlen(message)) < 0) {
+            perror("SSL_write()");
+        }
     }
 }
 
@@ -239,14 +246,11 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
             else if(g_str_has_prefix(message, REQ_SAY))
             {
                 gchar **msgSplit = g_strsplit_set(message, " ", 3); // split incoming message into 3 parts
-                if(strlen(msgSplit[1]) > 0 && strlen(msgSplit[2]) > 0) { // If only the req string is sent, or the
-                    // req string along with a username but no message, we'll ignore this
-                    gchar *reciever = g_strdup_printf("%s", msgSplit[1]);
-
-                    //g_tree_foreach(usersTree, findUser, reciever);
-                    printf("Client is trying to send a message to %s\n", reciever);
-
-                    g_free(reciever);
+                if(msgSplit[1] != NULL && msgSplit[2] != NULL) { // If only the req string is sent, or the
+                    // req string along with a username but no message, we'll ignore the incoming message
+                    gchar *tmpMsg =   g_strconcat(msgSplit[1], " ", msgSplit[2], NULL);
+                    g_tree_foreach(usersTree, findAndSendToUser, tmpMsg);
+                    g_free(tmpMsg);
                 }
                 else
                 {
