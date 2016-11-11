@@ -86,16 +86,6 @@ static gint fd_cmp(gconstpointer fd1,  gconstpointer fd2, gpointer G_GNUC_UNUSED
      return GPOINTER_TO_INT(fd1) - GPOINTER_TO_INT(fd2);
 }
 
-void chatroomsTree_key_destroy(gpointer data) {
-    gchar *tmp = (gchar*) data;
-    g_free(tmp);
-}
-
-void chatroomsTree_value_destroy(gpointer data) {
-    GSList *tmp = (GSList*) data;
-    g_slist_free(tmp);
-}
-
 /* This is used to go through the usersTree and create a list of
    all the users as a string so it can be sent back to a client. */
 static gboolean getAllUsersAsString(gpointer G_GNUC_UNUSED key, gpointer value, gpointer data) {
@@ -208,21 +198,17 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
                     /* first we remove the user from the current chatroom */
                     GSList *currentList = g_tree_lookup(chatroomsTree, current_cInfo->chatroom);
                     currentList = g_slist_remove(currentList, current_cInfo);
-                    if(currentList == NULL) {
-                        /* If the user was the only one in that chatroom need to update the tree's list pointer.
-                         * We first have to create a new pointer to the key string as the old one gets destroyed
-                         */
-                        gchar *tmpRoom = g_strdup_printf("%s", current_cInfo->chatroom);
-                        g_tree_replace(chatroomsTree, tmpRoom, currentList);
-                    }
+                    /* In case the user was the only one in that chatroom we need to update the tree's list pointer.
+                     * We first have to create a new pointer to the key string as the old one gets destroyed
+                     */
+                    gchar *tmpRoom = g_strdup_printf("%s", current_cInfo->chatroom);
+                    g_tree_replace(chatroomsTree, tmpRoom, currentList);
 
                     /* and then we add the user to the new chatroom */
                     GSList *userList = g_tree_lookup(chatroomsTree, room);
                     GSList *newUserList = g_slist_prepend(userList, current_cInfo); // The prepend function can return a new pointer
-                    if(userList != newUserList) { // We have to check if we need to update the tree's list pointer.
-                        // the 'room' string can be used here, it's been allocated and won't be freed till the list changes
-                        g_tree_replace(chatroomsTree, room, newUserList);
-                    }
+                    // the 'room' string can be used here, it's been allocated and won't be freed till the list changes
+                    g_tree_replace(chatroomsTree, room, newUserList);
 
                     strcpy(current_cInfo->chatroom, room);
 
@@ -289,8 +275,6 @@ gboolean checkClients(gpointer key, gpointer value, gpointer data) {
             }
             else
             {
-                printf("THIS IS AT THE START OF SENDING A MESSAGE TO EVERYONE!\n");
-                fflush(stdout);
                 /* Message should be sent to everyone in the same chatroom as the sender */
                 GSList *currentList = g_tree_lookup(chatroomsTree, current_cInfo->chatroom);
                 gchar *msg = g_strconcat(current_cInfo->username, " says: ", message, NULL);
@@ -453,8 +437,7 @@ int main(int argc, char **argv)
     socklen_t len = (socklen_t) sizeof(client); 
 
     usersTree     = g_tree_new((GCompareFunc) fd_cmp);
-    chatroomsTree = g_tree_new_full((GCompareDataFunc) strcmp, NULL, (GDestroyNotify) chatroomsTree_key_destroy,
-                                    (GDestroyNotify) chatroomsTree_value_destroy);
+    chatroomsTree = g_tree_new((GCompareFunc) strcmp);
     gchar *theLobby = g_strdup_printf("%s", "Lobby"); // The key has to be a pointer to a string
     g_tree_insert(chatroomsTree, theLobby, NULL);
 
@@ -525,10 +508,8 @@ int main(int argc, char **argv)
                 /* add the user to the Lobby chatroom */
                 GSList *userList = g_tree_lookup(chatroomsTree, "Lobby");
                 GSList *newUserList = g_slist_prepend(userList, current_cInfo); // The prepend function can return a new pointer
-                if(userList != newUserList) { // We have to check if we need to update the tree's list pointer.
-                    gchar *theRoom = g_strdup_printf("%s", "Lobby");     // we have to create a new pointer to the "Lobby" string
-                    g_tree_replace(chatroomsTree, theRoom, newUserList); // each time because the old string gets destroyed
-                }
+                gchar *theRoom = g_strdup_printf("%s", "Lobby");     // we have to create a new pointer to the "Lobby" string
+                g_tree_replace(chatroomsTree, theRoom, newUserList); // each time because the old string gets destroyed
 
                 /* Send a welcome message to the new client */
                 if(SSL_write(ssl, WELCOME_MSG, strlen(WELCOME_MSG)) < 0)
