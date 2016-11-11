@@ -18,7 +18,8 @@ The client sends the following messages to the server for requests:
 	- "REQUEST_LIST"
 	- "REQUEST_WHOO"
 
-In some requests the client sends a message along with the request, like REQUEST_USER sends the username and password following the request form.
+In some requests the client sends a message along with the request, like REQUEST_USER sends the username and password following the request.
+The server then checks the first parameter and if it is a REQUEST, then he parses the message as he should.
 
 The others do not need a message like LIST and WHOO, where the server just sends the information when the server can.
 
